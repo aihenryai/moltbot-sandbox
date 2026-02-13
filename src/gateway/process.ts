@@ -15,9 +15,21 @@ export async function isGatewayPortReachable(sandbox: Sandbox): Promise<boolean>
       new Request(`http://localhost:${MOLTBOT_PORT}/`),
       MOLTBOT_PORT,
     );
-    // Any response (even 404) means the port is open
+    // A 500 with "Error proxying request to container" means the port is NOT open.
+    // Cloudflare's sandbox proxy returns this when the container port isn't listening.
+    if (response.status === 500) {
+      const body = await response.text();
+      if (body.includes('Error proxying request to container') || body.includes('not listening')) {
+        console.log('[PortCheck] Got proxy error (port not open):', body.slice(0, 120));
+        return false;
+      }
+      // A 500 from the actual gateway (e.g. internal error) means the port IS open
+      return true;
+    }
+    // Any non-500 response (even 404) means the port is open
     return response.status > 0;
-  } catch {
+  } catch (e) {
+    console.log('[PortCheck] containerFetch threw:', e);
     return false;
   }
 }

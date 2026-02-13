@@ -441,18 +441,52 @@ app.all('*', async (c) => {
   }
 
   console.log('[HTTP] Proxying:', url.pathname + url.search);
-  const httpResponse = await sandbox.containerFetch(request, MOLTBOT_PORT);
-  console.log('[HTTP] Response status:', httpResponse.status);
+  try {
+    const httpResponse = await sandbox.containerFetch(request, MOLTBOT_PORT);
+    console.log('[HTTP] Response status:', httpResponse.status);
 
-  const newHeaders = new Headers(httpResponse.headers);
-  newHeaders.set('X-Worker-Debug', 'proxy-to-moltbot');
-  newHeaders.set('X-Debug-Path', url.pathname);
+    // Check if the response is actually a proxy error (port not listening)
+    if (httpResponse.status === 500) {
+      const body = await httpResponse.text();
+      if (body.includes('Error proxying request to container') || body.includes('not listening')) {
+        console.error('[HTTP] Container proxy error:', body.slice(0, 150));
+        const acceptsHtml = request.headers.get('Accept')?.includes('text/html');
+        if (acceptsHtml) {
+          return c.html(loadingPageHtml);
+        }
+        return c.json({ error: 'Gateway not ready', message: 'Container port not listening' }, 503);
+      }
+      // Real 500 from the gateway - pass through
+      return new Response(body, {
+        status: httpResponse.status,
+        statusText: httpResponse.statusText,
+        headers: httpResponse.headers,
+      });
+    }
 
-  return new Response(httpResponse.body, {
-    status: httpResponse.status,
-    statusText: httpResponse.statusText,
-    headers: newHeaders,
-  });
+    const newHeaders = new Headers(httpResponse.headers);
+    newHeaders.set('X-Worker-Debug', 'proxy-to-moltbot');
+    newHeaders.set('X-Debug-Path', url.pathname);
+
+    return new Response(httpResponse.body, {
+      status: httpResponse.status,
+      statusText: httpResponse.statusText,
+      headers: newHeaders,
+    });
+  } catch (proxyError) {
+    console.error('[HTTP] containerFetch threw:', proxyError);
+    const acceptsHtml = request.headers.get('Accept')?.includes('text/html');
+    if (acceptsHtml) {
+      return c.html(loadingPageHtml);
+    }
+    return c.json(
+      {
+        error: 'Gateway not reachable',
+        message: proxyError instanceof Error ? proxyError.message : 'Unknown error',
+      },
+      503,
+    );
+  }
 });
 
 /**
