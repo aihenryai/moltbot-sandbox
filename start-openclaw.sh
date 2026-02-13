@@ -280,6 +280,82 @@ if (process.env.SLACK_BOT_TOKEN && process.env.SLACK_APP_TOKEN) {
     };
 }
 
+// ============================================================
+// AUTH PROFILES — ensure API credentials are always configured
+// When config is restored from R2, openclaw onboard is skipped,
+// so auth profiles may be missing. We patch them here.
+// ============================================================
+const authProfilesPath = '/root/.openclaw/agents/main/agent/auth-profiles.json';
+let authProfiles = { version: 1, profiles: {} };
+try {
+    authProfiles = JSON.parse(fs.readFileSync(authProfilesPath, 'utf8'));
+} catch (e) { /* file doesn't exist yet */ }
+
+config.auth = config.auth || {};
+config.auth.profiles = config.auth.profiles || {};
+
+// Anthropic direct API key
+if (process.env.ANTHROPIC_API_KEY) {
+    // Register profile in main config
+    if (!config.auth.profiles['anthropic:default']) {
+        config.auth.profiles['anthropic:default'] = {
+            provider: 'anthropic',
+            mode: 'api_key',
+        };
+        console.log('Added anthropic:default auth profile to config');
+    }
+    // Store actual key in auth-profiles.json
+    authProfiles.profiles['anthropic:default'] = {
+        type: 'api_key',
+        provider: 'anthropic',
+        key: process.env.ANTHROPIC_API_KEY,
+    };
+    console.log('Updated anthropic:default credentials in auth-profiles.json');
+}
+
+// OpenAI direct API key
+if (process.env.OPENAI_API_KEY) {
+    if (!config.auth.profiles['openai:default']) {
+        config.auth.profiles['openai:default'] = {
+            provider: 'openai',
+            mode: 'api_key',
+        };
+        console.log('Added openai:default auth profile to config');
+    }
+    authProfiles.profiles['openai:default'] = {
+        type: 'api_key',
+        provider: 'openai',
+        key: process.env.OPENAI_API_KEY,
+    };
+    console.log('Updated openai:default credentials in auth-profiles.json');
+}
+
+// Cloudflare AI Gateway API key (native provider)
+if (process.env.CLOUDFLARE_AI_GATEWAY_API_KEY && process.env.CF_AI_GATEWAY_ACCOUNT_ID && process.env.CF_AI_GATEWAY_GATEWAY_ID) {
+    const profileId = 'cloudflare-ai-gateway:default';
+    if (!config.auth.profiles[profileId]) {
+        config.auth.profiles[profileId] = {
+            provider: 'cloudflare-ai-gateway',
+            mode: 'api_key',
+        };
+        console.log('Added ' + profileId + ' auth profile to config');
+    }
+    authProfiles.profiles[profileId] = {
+        type: 'api_key',
+        provider: 'cloudflare-ai-gateway',
+        key: process.env.CLOUDFLARE_AI_GATEWAY_API_KEY,
+        accountId: process.env.CF_AI_GATEWAY_ACCOUNT_ID,
+        gatewayId: process.env.CF_AI_GATEWAY_GATEWAY_ID,
+    };
+    console.log('Updated ' + profileId + ' credentials in auth-profiles.json');
+}
+
+// Write auth-profiles.json (ensure directory exists)
+const authDir = require('path').dirname(authProfilesPath);
+fs.mkdirSync(authDir, { recursive: true });
+fs.writeFileSync(authProfilesPath, JSON.stringify(authProfiles, null, 2));
+console.log('Auth profiles file written: ' + Object.keys(authProfiles.profiles).join(', '));
+
 fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
 console.log('Configuration patched successfully');
 EOFPATCH
