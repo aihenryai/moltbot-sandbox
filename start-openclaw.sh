@@ -229,6 +229,19 @@ if (process.env.CF_AI_GATEWAY_MODEL) {
     }
 }
 
+// Fallback: When ANTHROPIC_API_KEY is set directly (no AI Gateway),
+// ensure a default model is configured so the agent can respond.
+// openclaw onboard detects the key and creates the auth profile,
+// but does NOT set agents.defaults.model automatically.
+if (!process.env.CF_AI_GATEWAY_MODEL && process.env.ANTHROPIC_API_KEY) {
+    config.agents = config.agents || {};
+    config.agents.defaults = config.agents.defaults || {};
+    if (!config.agents.defaults.model || !config.agents.defaults.model.primary) {
+        config.agents.defaults.model = { primary: 'anthropic/claude-sonnet-4-20250514' };
+        console.log('Auto-configured default model: anthropic/claude-sonnet-4-20250514 (direct Anthropic key)');
+    }
+}
+
 // Telegram configuration
 if (process.env.TELEGRAM_BOT_TOKEN) {
     const dmPolicy = process.env.TELEGRAM_DM_POLICY || 'pairing';
