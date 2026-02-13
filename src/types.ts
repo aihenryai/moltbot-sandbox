@@ -10,6 +10,11 @@ export interface MoltbotEnv {
   // AI Gateway configuration (preferred)
   AI_GATEWAY_API_KEY?: string; // API key for the provider configured in AI Gateway
   AI_GATEWAY_BASE_URL?: string; // AI Gateway URL (e.g., https://gateway.ai.cloudflare.com/v1/{account_id}/{gateway_id}/anthropic)
+  // Cloudflare AI Gateway (native provider)
+  CLOUDFLARE_AI_GATEWAY_API_KEY?: string;
+  CF_AI_GATEWAY_ACCOUNT_ID?: string;
+  CF_AI_GATEWAY_GATEWAY_ID?: string;
+  CF_AI_GATEWAY_MODEL?: string; // Format: provider/model-id (e.g., anthropic/claude-sonnet-4-20250514)
   // Legacy direct provider configuration (fallback)
   ANTHROPIC_API_KEY?: string;
   ANTHROPIC_BASE_URL?: string;

@@ -121,6 +121,66 @@ app.use('*', async (c, next) => {
 app.route('/', publicRoutes);
 app.route('/cdp', cdp);
 
+// PRE-AUTH: Gateway warmup middleware
+// Shows loading page when gateway isn't ready, BEFORE auth kicks in.
+// This ensures the gateway can start even if auth isn't configured yet.
+app.use('*', async (c, next) => {
+  const url = new URL(c.req.url);
+
+  // Skip for paths that are handled by specific routes
+  if (
+    url.pathname.startsWith('/sandbox-health') ||
+    url.pathname.startsWith('/api/status') ||
+    url.pathname.startsWith('/debug') ||
+    url.pathname === '/logo.png' ||
+    url.pathname === '/logo-small.png'
+  ) {
+    return next();
+  }
+
+  const sandbox = c.get('sandbox');
+  const existingProcess = await findExistingMoltbotProcess(sandbox);
+  let isGatewayReady = existingProcess !== null && existingProcess.status === 'running';
+
+  if (!isGatewayReady) {
+    isGatewayReady = await isGatewayPortReachable(sandbox);
+  }
+
+  if (!isGatewayReady) {
+    const isWebSocketRequest = c.req.header('Upgrade')?.toLowerCase() === 'websocket';
+    const acceptsHtml = c.req.header('Accept')?.includes('text/html');
+
+    if (!isWebSocketRequest && acceptsHtml) {
+      console.log('[WARMUP] Gateway not ready, serving loading page (pre-auth)');
+      c.executionCtx.waitUntil(
+        ensureMoltbotGateway(sandbox, c.env).catch((err: Error) => {
+          console.error('[WARMUP] Background gateway start failed:', err);
+        }),
+      );
+      return c.html(loadingPageHtml);
+    }
+
+    // For non-HTML requests (API, WebSocket), try to start gateway synchronously
+    if (!isWebSocketRequest) {
+      console.log('[WARMUP] Gateway not ready, attempting sync start for non-HTML request');
+      try {
+        await ensureMoltbotGateway(sandbox, c.env);
+      } catch (err) {
+        console.error('[WARMUP] Gateway start failed:', err);
+        return c.json(
+          {
+            error: 'Gateway not ready',
+            message: err instanceof Error ? err.message : 'Unknown error',
+          },
+          503,
+        );
+      }
+    }
+  }
+
+  return next();
+});
+
 // PROTECTED ROUTES
 
 // Middleware: Validate required environment variables

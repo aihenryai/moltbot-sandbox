@@ -7,6 +7,12 @@
   "observability": {
     "enabled": true,
   },
+  // Temporary: DEV_MODE bypasses CF Access auth, DEBUG_ROUTES enables /debug/* endpoints
+  // TODO: Remove once Cloudflare Access is configured (CF_ACCESS_TEAM_DOMAIN + CF_ACCESS_AUD)
+  "vars": {
+    "DEV_MODE": "true",
+    "DEBUG_ROUTES": "true"
+  },
   // Static assets for admin UI (built by vite)
   "assets": {
     "directory": "./dist/client",
