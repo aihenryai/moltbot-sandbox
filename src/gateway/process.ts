@@ -5,6 +5,24 @@ import { buildEnvVars } from './env';
 import { mountR2Storage } from './r2';
 
 /**
+ * Check if the gateway port is reachable inside the container.
+ * Uses a simple TCP probe via containerFetch as a fallback when
+ * the sandbox process tracker has lost track of the gateway.
+ */
+export async function isGatewayPortReachable(sandbox: Sandbox): Promise<boolean> {
+  try {
+    const response = await sandbox.containerFetch(
+      new Request(`http://localhost:${MOLTBOT_PORT}/`),
+      MOLTBOT_PORT,
+    );
+    // Any response (even 404) means the port is open
+    return response.status > 0;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Find an existing OpenClaw gateway process
  *
  * @param sandbox - The sandbox instance
@@ -76,6 +94,21 @@ export async function ensureMoltbotGateway(sandbox: Sandbox, env: MoltbotEnv): P
         console.log('Failed to kill process:', killError);
       }
     }
+  } else {
+    // Fallback: The sandbox may have lost track of the gateway process
+    // (e.g. due to `exec` in start-openclaw.sh replacing the shell process).
+    // Check if the port is already reachable before attempting to start a new one.
+    console.log('[Gateway] No tracked process found, checking if port is already reachable...');
+    const portReachable = await isGatewayPortReachable(sandbox);
+    if (portReachable) {
+      console.log('[Gateway] Port', MOLTBOT_PORT, 'is reachable! Gateway is already running (untracked).');
+      // Return a minimal stub - the gateway is running, we just can't track it.
+      // The caller only needs the process for waitForPort, which we've already verified.
+      // We create a lightweight "probe" process that immediately completes.
+      const probe = await sandbox.startProcess('echo gateway-already-running');
+      return probe;
+    }
+    console.log('[Gateway] Port not reachable, will start a new gateway.');
   }
 
   console.log('Starting new OpenClaw gateway...');
@@ -106,6 +139,15 @@ export async function ensureMoltbotGateway(sandbox: Sandbox, env: MoltbotEnv): P
     if (logs.stderr) console.log('[Gateway] stderr:', logs.stderr);
   } catch (e) {
     console.error('[Gateway] waitForPort failed:', e);
+
+    // One more fallback: maybe the gateway started between our check and now
+    // (race condition with the lock file). Check the port directly.
+    const portNowReachable = await isGatewayPortReachable(sandbox);
+    if (portNowReachable) {
+      console.log('[Gateway] Port became reachable despite waitForPort failure. Gateway is running.');
+      return process;
+    }
+
     try {
       const logs = await process.getLogs();
       console.error('[Gateway] startup failed. Stderr:', logs.stderr);

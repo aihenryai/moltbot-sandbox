@@ -26,7 +26,7 @@ import { getSandbox, Sandbox, type SandboxOptions } from '@cloudflare/sandbox';
 import type { AppEnv, MoltbotEnv } from './types';
 import { MOLTBOT_PORT } from './config';
 import { createAccessMiddleware } from './auth';
-import { ensureMoltbotGateway, findExistingMoltbotProcess, syncToR2 } from './gateway';
+import { ensureMoltbotGateway, findExistingMoltbotProcess, isGatewayPortReachable, syncToR2 } from './gateway';
 import { publicRoutes, api, adminUi, debug, cdp } from './routes';
 import { redactSensitiveParams } from './utils/logging';
 import loadingPageHtml from './assets/loading.html';
@@ -190,7 +190,16 @@ app.all('*', async (c) => {
   console.log('[PROXY] Handling request:', url.pathname);
 
   const existingProcess = await findExistingMoltbotProcess(sandbox);
-  const isGatewayReady = existingProcess !== null && existingProcess.status === 'running';
+  let isGatewayReady = existingProcess !== null && existingProcess.status === 'running';
+
+  // Fallback: if no tracked process, check if the port is reachable
+  // (the gateway may be running but untracked due to exec in start-openclaw.sh)
+  if (!isGatewayReady) {
+    isGatewayReady = await isGatewayPortReachable(sandbox);
+    if (isGatewayReady) {
+      console.log('[PROXY] Gateway port reachable despite no tracked process');
+    }
+  }
 
   const isWebSocketRequest = request.headers.get('Upgrade')?.toLowerCase() === 'websocket';
   const acceptsHtml = request.headers.get('Accept')?.includes('text/html');
